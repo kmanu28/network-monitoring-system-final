@@ -1,0 +1,7 @@
+# Network Monitoring System – Python dependencies
+# Install with:  pip install -r requirements.txt
+
+cryptography>=42.0        # Fernet (AES-128-CBC + HMAC) for UDP payload encryption
+psutil>=5.9               # CPU, memory, disk metrics on the agent node
+ping3>=4.0                # ICMP latency probes (requires root/cap_net_raw on Linux)
+flask>=3.0                # Web dashboard

@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NMS – Network Monitoring Dashboard</title>
+
+<!-- Chart.js for RTT trend -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+  /* ── Reset & base ─────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0b0f19;
+    --surface:   #121828;
+    --surface2:  #1a2236;
+    --border:    #1f2d45;
+    --accent:    #3b82f6;
+    --green:     #22c55e;
+    --yellow:    #facc15;
+    --red:       #ef4444;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --font:      'Segoe UI', system-ui, sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── Layout ───────────────────────────────────────────────── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: .5px; }
+  header h1 span { color: var(--accent); }
+  #last-updated { color: var(--muted); font-size: 12px; }
+
+  main { padding: 20px 24px; }
+
+  /* ── Stat cards ───────────────────────────────────────────── */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  .card .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+  .card .sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .card.green .value { color: var(--green); }
+  .card.yellow .value { color: var(--yellow); }
+  .card.red .value { color: var(--red); }
+  .card.blue .value { color: var(--accent); }
+
+  /* ── Section header ───────────────────────────────────────── */
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    margin: 22px 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── Node chips ───────────────────────────────────────────── */
+  #node-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .node-chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    min-width: 180px;
+  }
+  .node-chip .nid { font-weight: 600; font-size: 13px; }
+  .node-chip .nmeta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .chip-up   { border-left: 3px solid var(--green); }
+  .chip-down { border-left: 3px solid var(--red); }
+
+  /* ── Chart section ────────────────────────────────────────── */
+  .chart-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 22px;
+  }
+  @media (max-width: 860px) { .chart-row { grid-template-columns: 1fr; } }
+  .chart-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .chart-box h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; color: var(--muted); }
+  .chart-box canvas { max-height: 220px; }
+
+  /* ── Event table ──────────────────────────────────────────── */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .table-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .table-toolbar input, .table-toolbar select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+  }
+  .table-toolbar input:focus, .table-toolbar select:focus {
+    border-color: var(--accent);
+  }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .btn:hover { opacity: .85; }
+  .btn.secondary {
+    background: var(--surface2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    background: var(--surface2);
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .7px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background .15s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--surface2); }
+  td { padding: 9px 14px; font-size: 13px; }
+  td.mono { font-family: 'Courier New', monospace; font-size: 12px; color: #94a3b8; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .badge-INFO     { background: #0ea5e920; color: #38bdf8; border: 1px solid #0ea5e940; }
+  .badge-WARNING  { background: #eab30820; color: #facc15; border: 1px solid #eab30840; }
+  .badge-CRITICAL { background: #dc262620; color: #f87171; border: 1px solid #dc262640; }
+  .badge-UNKNOWN  { background: #64748b20; color: #94a3b8; border: 1px solid #64748b40; }
+
+  #empty-msg { text-align: center; color: var(--muted); padding: 32px; }
+
+  /* ── Pulse dot ────────────────────────────────────────────── */
+  .pulse {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-right: 6px;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: .3; }
+  }
+</style>
+</head>
+
+<body>
+<header>
+  <h1>📡 <span>NMS</span> – Network Monitoring Dashboard</h1>
+  <div id="last-updated">Connecting…</div>
+</header>
+
+<main>
+
+  <!-- ── Stat cards ─────────────────────────────────────────── -->
+  <div class="cards">
+    <div class="card green">
+      <div class="label">Active Nodes</div>
+      <div class="value" id="c-nodes">–</div>
+      <div class="sub">connected agents</div>
+    </div>
+    <div class="card blue">
+      <div class="label">Events / sec</div>
+      <div class="value" id="c-eps">–</div>
+      <div class="sub">last 5 s average</div>
+    </div>
+    <div class="card blue">
+      <div class="label">Avg RTT</div>
+      <div class="value" id="c-rtt-avg">–</div>
+      <div class="sub">ms (last 60 s)</div>
+    </div>
+    <div class="card yellow">
+      <div class="label">P99 RTT</div>
+      <div class="value" id="c-rtt-p99">–</div>
+      <div class="sub">ms (last 60 s)</div>
+    </div>
+    <div class="card yellow">
+      <div class="label">Packet Loss</div>
+      <div class="value" id="c-loss">–</div>
+      <div class="sub">% of telemetry</div>
+    </div>
+    <div class="card blue">
+      <div class="label">Total Events</div>
+      <div class="value" id="c-total">–</div>
+      <div class="sub">since server start</div>
+    </div>
+  </div>
+
+  <!-- ── Node status ────────────────────────────────────────── -->
+  <div class="section-title">Node Status</div>
+  <div id="node-grid"><em style="color:var(--muted)">Waiting for nodes…</em></div>
+
+  <!-- ── Charts ─────────────────────────────────────────────── -->
+  <div class="section-title">Performance Trends</div>
+  <div class="chart-row">
+    <div class="chart-box">
+      <h3>RTT over time (ms)</h3>
+      <canvas id="rtt-chart"></canvas>
+    </div>
+    <div class="chart-box">
+      <h3>Throughput – events / sec</h3>
+      <canvas id="eps-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Event log ──────────────────────────────────────────── -->
+  <div class="section-title">Event Log</div>
+  <div class="table-wrap">
+    <div class="table-toolbar">
+      <input id="f-node"  type="text"   placeholder="Filter by node…" />
+      <select id="f-event">
+        <option value="">All events</option>
+        <optgroup label="── Always Reported ──">
+          <option value="HEARTBEAT">HEARTBEAT</option>
+          <option value="CPU_USAGE">CPU_USAGE</option>
+          <option value="MEMORY_USAGE">MEMORY_USAGE</option>
+          <option value="NETWORK_LATENCY">NETWORK_LATENCY</option>
+          <option value="NETWORK_JITTER">NETWORK_JITTER</option>
+          <option value="DISK_USAGE">DISK_USAGE</option>
+          <option value="BANDWIDTH_USAGE">BANDWIDTH_USAGE</option>
+          <option value="TCP_CONNECTIONS">TCP_CONNECTIONS</option>
+          <option value="PACKET_LOSS">PACKET_LOSS</option>
+        </optgroup>
+        <optgroup label="── Alerts ──">
+          <option value="CPU_THRESHOLD_EXCEEDED">CPU_THRESHOLD_EXCEEDED</option>
+          <option value="MEMORY_THRESHOLD_EXCEEDED">MEMORY_THRESHOLD_EXCEEDED</option>
+          <option value="LATENCY_HIGH">LATENCY_HIGH</option>
+          <option value="NETWORK_FAILURE">NETWORK_FAILURE</option>
+          <option value="DISK_USAGE_HIGH">DISK_USAGE_HIGH</option>
+          <option value="BANDWIDTH_SPIKE">BANDWIDTH_SPIKE</option>
+          <option value="NODE_DOWN">NODE_DOWN</option>
+        </optgroup>
+      </select>
+      <button class="btn" onclick="fetchEvents()">Apply</button>
+      <button class="btn secondary" onclick="clearFilters()">Clear</button>
+      <span style="margin-left:auto; color:var(--muted); font-size:12px;">
+        <span class="pulse"></span>Live – refreshes every 3 s
+      </span>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Node</th>
+          <th>Timestamp</th>
+          <th>Event</th>
+          <th>Metric</th>
+          <th>Value</th>
+          <th>Severity</th>
+        </tr>
+      </thead>
+      <tbody id="event-tbody">
+        <tr><td colspan="6" id="empty-msg">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<script>
+// ── Chart setup ──────────────────────────────────────────────────────────────
+const CHART_OPTS = {
+  responsive: true,
+  animation: false,
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { color: '#1f2d45' } },
+    y: { ticks: { color: '#64748b' }, grid: { color: '#1f2d45' }, beginAtZero: true },
+  },
+};
+
+const rttChart = new Chart(document.getElementById('rtt-chart'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label: 'Avg RTT', data: [], borderColor: '#3b82f6', backgroundColor: '#3b82f620',
+        fill: true, tension: 0.3, pointRadius: 2 },
+      { label: 'P99 RTT', data: [], borderColor: '#ef4444', backgroundColor: 'transparent',
+        borderDash: [4,3], tension: 0.3, pointRadius: 0 },
+    ],
+  },
+  options: { ...CHART_OPTS,
+    plugins: {
+      legend: { display: true,
+        labels: { color: '#64748b', boxWidth: 12 } }
+    }
+  },
+});
+
+const epsChart = new Chart(document.getElementById('eps-chart'), {
+  type: 'bar',
+  data: {
+    labels: [],
+    datasets: [{
+      label: 'events/s', data: [],
+      backgroundColor: '#22c55e60', borderColor: '#22c55e', borderWidth: 1,
+    }],
+  },
+  options: CHART_OPTS,
+});
+
+// ── Fetch helpers ─────────────────────────────────────────────────────────────
+async function get(url) {
+  const r = await fetch(url);
+  return r.ok ? r.json() : null;
+}
+
+function ts2str(unix) {
+  return new Date(unix * 1000).toLocaleTimeString();
+}
+
+function badgeFor(sev) {
+  const cls = ['INFO','WARNING','CRITICAL'].includes(sev) ? sev : 'UNKNOWN';
+  return `<span class="badge badge-${cls}">${cls}</span>`;
+}
+
+// ── Node status ───────────────────────────────────────────────────────────────
+async function fetchNodes() {
+  const nodes = await get('/api/nodes');
+  if (!nodes) return;
+  const grid = document.getElementById('node-grid');
+  if (!nodes.length) {
+    grid.innerHTML = '<em style="color:var(--muted)">No active nodes yet…</em>';
+    return;
+  }
+  grid.innerHTML = nodes.map(n => {
+    const st  = n.status || 'UP';
+    const cls = st === 'UP' ? 'chip-up' : 'chip-down';
+    const dot = st === 'UP'
+      ? '<span style="color:#22c55e">● </span>'
+      : '<span style="color:#ef4444">● </span>';
+    const ago = Math.round(Date.now()/1000 - n.last_seen);
+    return `
+      <div class="node-chip ${cls}">
+        <div class="nid">${dot}${n.id}</div>
+        <div class="nmeta">${n.ip}  ·  last seen ${ago}s ago  ·  seq ${n.last_seq ?? '?'}</div>
+        <div class="nmeta">event: ${n.last_event ?? '–'}  ·  loss: ${n.loss_count ?? 0}</div>
+      </div>`;
+  }).join('');
+}
+
+// ── Stat cards ────────────────────────────────────────────────────────────────
+async function fetchPerf() {
+  const p = await get('/api/perf');
+  if (!p) return;
+  document.getElementById('c-nodes').textContent   = p.active_nodes ?? '–';
+  document.getElementById('c-eps').textContent     = (p.events_per_sec ?? 0).toFixed(1);
+  document.getElementById('c-rtt-avg').textContent = (p.avg_rtt_ms ?? 0).toFixed(1);
+  document.getElementById('c-rtt-p99').textContent = (p.p99_rtt_ms ?? 0).toFixed(1);
+  document.getElementById('c-loss').textContent    = (p.packet_loss_pct ?? 0).toFixed(2);
+  document.getElementById('c-total').textContent   = p.total_events ?? 0;
+
+  // Colour the loss card
+  const lossCard = document.getElementById('c-loss').closest('.card');
+  lossCard.className = 'card';
+  if (p.packet_loss_pct > 5)      lossCard.classList.add('red');
+  else if (p.packet_loss_pct > 1) lossCard.classList.add('yellow');
+  else                             lossCard.classList.add('green');
+}
+
+// ── Chart data ────────────────────────────────────────────────────────────────
+async function fetchPerfHistory() {
+  const rows = await get('/api/perf/history');
+  if (!rows || !rows.length) return;
+
+  const labels  = rows.map(r => ts2str(r.captured_at));
+  const avgRtts = rows.map(r => r.avg_rtt_ms ?? 0);
+  const p99Rtts = rows.map(r => r.p99_rtt_ms ?? 0);
+  const eps     = rows.map(r => r.events_per_sec ?? 0);
+
+  rttChart.data.labels           = labels;
+  rttChart.data.datasets[0].data = avgRtts;
+  rttChart.data.datasets[1].data = p99Rtts;
+  rttChart.update();
+
+  epsChart.data.labels           = labels;
+  epsChart.data.datasets[0].data = eps;
+  epsChart.update();
+}
+
+// ── Event table ───────────────────────────────────────────────────────────────
+async function fetchEvents() {
+  const node  = document.getElementById('f-node').value.trim();
+  const event = document.getElementById('f-event').value;
+  const url   = `/api/events?limit=100&node=${encodeURIComponent(node)}&event=${encodeURIComponent(event)}`;
+  const evts  = await get(url);
+  const tbody = document.getElementById('event-tbody');
+
+  if (!evts || !evts.length) {
+    tbody.innerHTML = '<tr><td colspan="6" id="empty-msg">No events match the filter.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = evts.map(e => {
+    const sev = e.severity || 'INFO';
+    return `
+      <tr>
+        <td><b>${e.node}</b></td>
+        <td class="mono">${ts2str(e.timestamp)}</td>
+        <td>${e.event}</td>
+        <td class="mono">${e.metric}</td>
+        <td class="mono">${e.value}</td>
+        <td>${badgeFor(sev)}</td>
+      </tr>`;
+  }).join('');
+}
+
+function clearFilters() {
+  document.getElementById('f-node').value  = '';
+  document.getElementById('f-event').value = '';
+  fetchEvents();
+}
+
+// ── Polling loop ──────────────────────────────────────────────────────────────
+async function refresh() {
+  await Promise.all([fetchNodes(), fetchPerf(), fetchEvents(), fetchPerfHistory()]);
+  document.getElementById('last-updated').textContent =
+    'Last updated: ' + new Date().toLocaleTimeString();
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

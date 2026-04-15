@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Keys and certificates — never commit these
+certs/fernet.key
+certs/*.key
+certs/*.crt
+certs/*.csr
+certs/*.srl
+
+# Database
+*.db
+
+# Stress test output
+tests/stress_report.txt
+
+# VS Code / OS
+.vscode/
+.DS_Store
+Thumbs.db
