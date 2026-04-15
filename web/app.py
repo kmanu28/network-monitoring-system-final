@@ -43,7 +43,16 @@ def api_nodes():
         GROUP  BY node
         ORDER  BY last_seen DESC
     """, (cutoff,)).fetchall()
-    return jsonify([dict(r) for r in rows])
+    nodes = []
+    for r in rows:
+        status = "UP" if r["last_seen"] >= cutoff else "DOWN"
+        nodes.append({
+            "id": r["node"],
+            "last_seen": r["last_seen"],
+            "last_event": r["last_event"],
+            "status": status
+        })
+    return jsonify(nodes)
 
 
 @app.route("/api/perf")

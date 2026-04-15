@@ -222,7 +222,7 @@
 
 <body>
 <header>
-  <h1>📡 <span>NMS</span> – Network Monitoring Dashboard</h1>
+  <h1><span>NMS</span> – Network Monitoring Dashboard</h1>
   <div id="last-updated">Connecting…</div>
 </header>
 
@@ -410,8 +410,8 @@ async function fetchNodes() {
     return `
       <div class="node-chip ${cls}">
         <div class="nid">${dot}${n.id}</div>
-        <div class="nmeta">${n.ip}  ·  last seen ${ago}s ago  ·  seq ${n.last_seq ?? '?'}</div>
-        <div class="nmeta">event: ${n.last_event ?? '–'}  ·  loss: ${n.loss_count ?? 0}</div>
+        <div class="nmeta">last seen ${ago}s ago</div>
+        <div class="nmeta">event: ${n.last_event ?? '–'}</div>
       </div>`;
   }).join('');
 }
