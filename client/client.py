@@ -111,7 +111,7 @@ def send_event(event, metric, value):
             retries += 1
             print(f"[RETRY] seq={seq}  attempt={attempt}/{config.MAX_RETRIES}")
 
-        _udp.sendto(encrypted, ("10.30.200.199", config.UDP_PORT))
+        _udp.sendto(encrypted, ("192.168.137.1", config.UDP_PORT))
 
         try:
             ack_data, _ = _udp.recvfrom(256)
@@ -152,8 +152,8 @@ def _build_tls_ctx():
 def _tls_send(msg):
     try:
         ctx = _build_tls_ctx()
-        raw = socket.create_connection(("10.30.200.199", config.TCP_PORT), timeout=5)
-        with ctx.wrap_socket(raw, server_hostname="10.30.200.199") as tls:
+        raw = socket.create_connection(("192.168.137.1", config.TCP_PORT), timeout=5)
+        with ctx.wrap_socket(raw, server_hostname="192.168.137.1") as tls:
             tls.sendall(msg.encode())
             return tls.recv(256).decode().strip()
     except Exception as exc:
@@ -283,7 +283,7 @@ def collect_packet_loss():
 def main():
     print("=" * 60)
     print(f"  NMS Agent  –  {NODE_ID}")
-    print(f"  Server  10.30.200.199  UDP:{config.UDP_PORT}  TLS:{config.TCP_PORT}")
+    print(f"  Server  192.168.137.1  UDP:{config.UDP_PORT}  TLS:{config.TCP_PORT}")
     print("=" * 60)
 
     _register_node()
