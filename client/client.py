@@ -30,7 +30,6 @@ Alert events (sent only when threshold crossed, with cooldown)
 
 import os
 import socket
-import ssl
 import sys
 import threading
 import time
@@ -111,7 +110,7 @@ def send_event(event, metric, value):
             retries += 1
             print(f"[RETRY] seq={seq}  attempt={attempt}/{config.MAX_RETRIES}")
 
-        _udp.sendto(encrypted, ("192.168.137.1", config.UDP_PORT))
+        _udp.sendto(encrypted, ("10.30.200.199", config.UDP_PORT))
 
         try:
             ack_data, _ = _udp.recvfrom(256)
@@ -138,48 +137,7 @@ def send_event(event, metric, value):
     return acked
 
 
-# ── TLS control channel ───────────────────────────────────────────────────────
-
-def _build_tls_ctx():
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    ctx.check_hostname  = False  # Disable hostname check for remote IP
-    ctx.verify_mode     = ssl.CERT_REQUIRED
-    ctx.load_verify_locations(config.CA_CERT)
-    ctx.load_cert_chain(config.CLIENT_CERT, config.CLIENT_KEY)
-    return ctx
-
-def _tls_send(msg):
-    try:
-        ctx = _build_tls_ctx()
-        raw = socket.create_connection(("192.168.137.1", config.TCP_PORT), timeout=5)
-        with ctx.wrap_socket(raw, server_hostname="192.168.137.1") as tls:
-            tls.sendall(msg.encode())
-            return tls.recv(256).decode().strip()
-    except Exception as exc:
-        print(f"[TLS  ] {exc}")
-        return None
-
-def _register_node():
-    if not os.path.exists(config.CLIENT_CERT):
-        print("[TLS  ] No client cert – skipping registration.")
-        return
-    reply = _tls_send(f"REGISTER|{NODE_ID}")
-    print(f"[TLS  ] Registration: {reply}")
-
-def _flush_rtt_records():
-    if not os.path.exists(config.CLIENT_CERT):
-        return
-    while True:
-        time.sleep(15)
-        with _rtt_lock:
-            if not _rtt_buffer:
-                continue
-            records = list(_rtt_buffer)
-            _rtt_buffer.clear()
-        for seq, sent_ms, ack_ms, retries in records:
-            _tls_send(f"RTT_RECORD|{NODE_ID}|{seq}|{sent_ms:.0f}|{ack_ms:.0f}|{retries}")
-        print(f"[TLS  ] Flushed {len(records)} RTT records")
+# ── UDP-only, no TLS ──────────────────────────────────────────────────────────
 
 
 # ── Metric collectors ─────────────────────────────────────────────────────────
@@ -283,11 +241,8 @@ def collect_packet_loss():
 def main():
     print("=" * 60)
     print(f"  NMS Agent  –  {NODE_ID}")
-    print(f"  Server  192.168.137.1  UDP:{config.UDP_PORT}  TLS:{config.TCP_PORT}")
+    print(f"  Server  10.30.200.199  UDP:{config.UDP_PORT}")
     print("=" * 60)
-
-    _register_node()
-    threading.Thread(target=_flush_rtt_records, daemon=True).start()
 
     cycle = 0
     try:

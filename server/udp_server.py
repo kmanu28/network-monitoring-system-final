@@ -29,7 +29,6 @@ Reliability
 """
 
 import socket
-import ssl
 import threading
 import time
 import traceback
@@ -51,19 +50,6 @@ def _build_udp_socket() -> socket.socket:
     s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
     s.bind((config.HOST, config.UDP_PORT))
     return s
-
-
-def _build_tls_context() -> ssl.SSLContext:
-    """
-    Mutual TLS context: server presents its certificate; client must
-    present a certificate signed by our CA.
-    """
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    ctx.load_cert_chain(config.SERVER_CERT, config.SERVER_KEY)
-    ctx.load_verify_locations(config.CA_CERT)
-    ctx.verify_mode = ssl.CERT_REQUIRED
-    return ctx
 
 
 # ── UDP receiver ──────────────────────────────────────────────────────────────
@@ -131,74 +117,6 @@ def udp_receiver(sock: socket.socket) -> None:
         except Exception as exc:
             print(f"[ERROR] UDP receiver: {exc}")
             traceback.print_exc()
-
-
-# ── TLS control channel ───────────────────────────────────────────────────────
-
-def _handle_control_client(conn: ssl.SSLSocket, addr: tuple) -> None:
-    """
-    Handle one TLS control connection.
-
-    Messages (newline-delimited JSON-like plain text for simplicity):
-      REGISTER|<node_id>         → server replies OK|<node_id>
-      RTT_RECORD|<node>|<seq>|<sent_ms>|<ack_ms>|<retries>
-                                 → server persists ACK log, replies OK
-      PING                       → server replies PONG|<server_ts_ms>
-    """
-    print(f"[TLS  ] Control connection from {addr}")
-    try:
-        conn.settimeout(30)
-        raw = conn.recv(4096).decode("utf-8").strip()
-        parts = raw.split("|")
-        cmd   = parts[0] if parts else ""
-
-        if cmd == "REGISTER" and len(parts) >= 2:
-            node_id = parts[1]
-            print(f"[TLS  ] REGISTER  node={node_id}")
-            conn.sendall(f"OK|{node_id}\n".encode())
-
-        elif cmd == "RTT_RECORD" and len(parts) >= 6:
-            node, seq_s, sent_ms_s, ack_ms_s, retries_s = (
-                parts[1], parts[2], parts[3], parts[4], parts[5]
-            )
-            sent_ts = float(sent_ms_s) / 1000.0
-            ack_ts  = float(ack_ms_s)  / 1000.0
-            retries = int(retries_s)
-            database.insert_ack_log(node, int(seq_s), sent_ts, ack_ts, retries)
-            conn.sendall(b"OK\n")
-
-        elif cmd == "PING":
-            ts = int(time.time() * 1000)
-            conn.sendall(f"PONG|{ts}\n".encode())
-
-        else:
-            conn.sendall(b"ERR|unknown_command\n")
-
-    except ssl.SSLError as exc:
-        print(f"[WARN ] TLS error from {addr}: {exc}")
-    except Exception as exc:
-        print(f"[ERROR] Control handler: {exc}")
-    finally:
-        conn.close()
-
-
-def tcp_control_server(ctx: ssl.SSLContext) -> None:
-    raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    raw.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    raw.bind((config.HOST, config.TCP_PORT))
-    raw.listen(64)
-    print(f"[TLS  ] Control server on {config.HOST}:{config.TCP_PORT}  (mTLS)")
-    while True:
-        try:
-            client, addr = raw.accept()
-            tls_conn = ctx.wrap_socket(client, server_side=True)
-            threading.Thread(
-                target=_handle_control_client,
-                args=(tls_conn, addr),
-                daemon=True,
-            ).start()
-        except Exception as exc:
-            print(f"[ERROR] TLS accept: {exc}")
 
 
 # ── Node watchdog ─────────────────────────────────────────────────────────────
@@ -276,7 +194,6 @@ def main() -> None:
     print("-" * 60)
     print("  Network Monitoring System - Server")
     print(f"  UDP telemetry : {config.HOST}:{config.UDP_PORT}")
-    print(f"  TLS control   : {config.HOST}:{config.TCP_PORT}")
     print("-" * 60)
 
     global _udp_sock
@@ -288,20 +205,6 @@ def main() -> None:
         threading.Thread(target=node_watchdog,   daemon=True, name="watchdog"),
         threading.Thread(target=perf_collector,  daemon=True, name="perf"),
     ]
-
-    # TLS control server — certificates are required; abort if missing
-    import os
-    if not os.path.exists(config.SERVER_CERT) or not os.path.exists(config.SERVER_KEY):
-        print("[ERROR] TLS certificates not found.")
-        print("        Run:  python certs/gen_certs.py")
-        raise SystemExit(1)
-    tls_ctx = _build_tls_context()   # raises clearly if certs are invalid
-    threads.append(
-        threading.Thread(
-            target=tcp_control_server, args=(tls_ctx,),
-            daemon=True, name="tls-ctrl",
-        )
-    )
 
     for t in threads:
         t.start()
@@ -320,7 +223,8 @@ def main() -> None:
             )
     except KeyboardInterrupt:
         print("\n[INFO ] Server shutting down.")
-        _udp_sock.close()
+        if _udp_sock:
+            _udp_sock.close()
 
 
 if __name__ == "__main__":
