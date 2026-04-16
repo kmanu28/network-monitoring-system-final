@@ -5,10 +5,11 @@ config.py  –  Central configuration for the Network Monitoring System.
 import os
 
 # ── Network ───────────────────────────────────────────────────────────────────
-HOST     = "0.0.0.0"
-UDP_PORT = 9000
-TCP_PORT = 9001
-WEB_PORT = 5000
+HOST      = "0.0.0.0"
+SERVER_IP = "192.168.137.1"  # Hotspot IP from ipconfig
+UDP_PORT  = 9000
+TCP_PORT  = 9001
+WEB_PORT  = 5000
 
 # ── Fernet key ────────────────────────────────────────────────────────────────
 # Loaded from env var NMS_FERNET_KEY, or certs/fernet.key file.
