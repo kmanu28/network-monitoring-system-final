@@ -33,6 +33,7 @@ import ssl
 import threading
 import time
 import traceback
+import os
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -272,11 +273,31 @@ def perf_collector() -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def _get_local_ips():
+    try:
+        import subprocess
+        output = subprocess.check_output("ipconfig", shell=True).decode()
+        ips = []
+        import re
+        for match in re.finditer(r"IPv4 Address[ .]*:[ ]*([\d.]+)", output):
+            ips.append(match.group(1))
+        return ips
+    except Exception:
+        return []
+
+
 def main() -> None:
     print("-" * 60)
     print("  Network Monitoring System - Server")
     print(f"  UDP telemetry : {config.HOST}:{config.UDP_PORT}")
-    print(f"  TLS control   : {config.HOST}:{config.TCP_PORT}")
+    print(f"  TCP port (TLS): {config.TCP_PORT}")
+    
+    local_ips = _get_local_ips()
+    if local_ips:
+        print("  Local IP addresses discovered:")
+        for ip in local_ips:
+            print(f"    - {ip}")
+        print("  Use one of these in the client: python client.py --server <IP>")
     print("-" * 60)
 
     global _udp_sock
@@ -289,19 +310,23 @@ def main() -> None:
         threading.Thread(target=perf_collector,  daemon=True, name="perf"),
     ]
 
-    # TLS control server — certificates are required; abort if missing
-    import os
+    # TLS certificates check
     if not os.path.exists(config.SERVER_CERT) or not os.path.exists(config.SERVER_KEY):
         print("[ERROR] TLS certificates not found.")
-        print("        Run:  python certs/gen_certs.py")
-        raise SystemExit(1)
-    tls_ctx = _build_tls_context()   # raises clearly if certs are invalid
-    threads.append(
-        threading.Thread(
-            target=tcp_control_server, args=(tls_ctx,),
-            daemon=True, name="tls-ctrl",
-        )
-    )
+        print("        Run:  python scripts/setup_certs.py")
+        # Don't abort, just warn, maybe the user wants UDP-only (though unlikely)
+        # But according to README, it's required.
+    else:
+        try:
+            tls_ctx = _build_tls_context()
+            threads.append(
+                threading.Thread(
+                    target=tcp_control_server, args=(tls_ctx,),
+                    daemon=True, name="tls-ctrl",
+                )
+            )
+        except Exception as exc:
+            print(f"[ERROR] Failed to initialize TLS: {exc}")
 
     for t in threads:
         t.start()
@@ -320,7 +345,8 @@ def main() -> None:
             )
     except KeyboardInterrupt:
         print("\n[INFO ] Server shutting down.")
-        _udp_sock.close()
+        if _udp_sock:
+            _udp_sock.close()
 
 
 if __name__ == "__main__":

@@ -40,8 +40,12 @@ from collections import deque
 import psutil
 from cryptography.fernet import Fernet
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
-import config
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
+    import config
+except ImportError:
+    print("[ERROR] Could not find server/config.py. Ensure the folder structure is correct.")
+    sys.exit(1)
 
 # ── Identity & startup time ───────────────────────────────────────────────────
 NODE_ID    = f"node-{uuid.uuid4().hex[:8]}"
@@ -111,7 +115,11 @@ def send_event(event, metric, value):
             retries += 1
             print(f"[RETRY] seq={seq}  attempt={attempt}/{config.MAX_RETRIES}")
 
-        _udp.sendto(encrypted, (config.SERVER_IP, config.UDP_PORT))
+        try:
+            _udp.sendto(encrypted, (config.SERVER_IP, config.UDP_PORT))
+        except Exception as exc:
+            print(f"[ERROR] UDP send failed: {exc}")
+            break
 
         try:
             ack_data, _ = _udp.recvfrom(256)
@@ -129,6 +137,8 @@ def send_event(event, metric, value):
                 break
         except socket.timeout:
             pass
+        except Exception as exc:
+            print(f"[ERROR] ACK receive error: {exc}")
 
     if not acked:
         print(f"[DROP ] seq={seq}  {event}  unacknowledged after {config.MAX_RETRIES} retries")
@@ -281,10 +291,30 @@ def collect_packet_loss():
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="NMS Agent Node")
+    parser.add_argument("--server", help=f"Server IP address (default: {config.SERVER_IP})")
+    parser.add_argument("--udp-port", type=int, help=f"UDP telemetry port (default: {config.UDP_PORT})")
+    parser.add_argument("--tcp-port", type=int, help=f"TCP control port (default: {config.TCP_PORT})")
+    args = parser.parse_args()
+
+    if args.server:
+        config.SERVER_IP = args.server
+    if args.udp_port:
+        config.UDP_PORT = args.udp_port
+    if args.tcp_port:
+        config.TCP_PORT = args.tcp_port
+
     print("=" * 60)
     print(f"  NMS Agent  –  {NODE_ID}")
-    print(f"  Server  {config.SERVER_IP}  UDP:{config.UDP_PORT}  TLS:{config.TCP_PORT}")
+    print(f"  Server  {config.SERVER_IP}")
+    print(f"  Channels: UDP:{config.UDP_PORT}  TLS:{config.TCP_PORT}")
     print("=" * 60)
+
+    # Validate server IP
+    if not config.SERVER_IP or config.SERVER_IP in ["0.0.0.0", "127.0.0.1", "localhost"]:
+        print("[WARN ] Server IP is set to a local/null address.")
+        print("        If the server is on another system, use --server <IP>")
 
     _register_node()
     threading.Thread(target=_flush_rtt_records, daemon=True).start()
@@ -294,14 +324,18 @@ def main():
         while True:
             cycle += 1
             print(f"\n-- Cycle {cycle} ---------------------------------------")
-            collect_heartbeat()
-            collect_cpu()
-            collect_memory()
-            collect_latency()
-            collect_disk()
-            collect_bandwidth()
-            collect_tcp_connections()
-            collect_packet_loss()
+            try:
+                collect_heartbeat()
+                collect_cpu()
+                collect_memory()
+                collect_latency()
+                collect_disk()
+                collect_bandwidth()
+                collect_tcp_connections()
+                collect_packet_loss()
+            except Exception as exc:
+                print(f"[ERROR] Cycle failure: {exc}")
+            
             time.sleep(config.HEARTBEAT_INTERVAL)
     except KeyboardInterrupt:
         print("\n[INFO ] Agent stopped.")

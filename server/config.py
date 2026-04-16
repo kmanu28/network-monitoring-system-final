@@ -5,17 +5,22 @@ config.py  –  Central configuration for the Network Monitoring System.
 import os
 
 # ── Network ───────────────────────────────────────────────────────────────────
-HOST      = "0.0.0.0"
-SERVER_IP = "192.168.137.1"  # Hotspot IP from ipconfig
-UDP_PORT  = 9000
-TCP_PORT  = 9001
-WEB_PORT  = 5000
+# ── Network ───────────────────────────────────────────────────────────────────
+HOST      = os.environ.get("NMS_HOST", "0.0.0.0")
+SERVER_IP = os.environ.get("NMS_SERVER_IP", "192.168.137.1")  # Default or Hotspot IP
+UDP_PORT  = int(os.environ.get("NMS_UDP_PORT", 9000))
+TCP_PORT  = int(os.environ.get("NMS_TCP_PORT", 9001))
+WEB_PORT  = int(os.environ.get("NMS_WEB_PORT", 5000))
+
+# ── Paths ───────────────────────────────────────────────────────────────────
+# Root directory is two levels up from this file (server/config.py)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CERT_DIR = os.path.join(BASE_DIR, "certs")
 
 # ── Fernet key ────────────────────────────────────────────────────────────────
 # Loaded from env var NMS_FERNET_KEY, or certs/fernet.key file.
 # If neither exists, a key is auto-generated and saved to certs/fernet.key on first run.
-_KEY_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                         "certs", "fernet.key")
+_KEY_FILE = os.path.join(CERT_DIR, "fernet.key")
 if os.environ.get("NMS_FERNET_KEY"):
     FERNET_KEY = os.environ["NMS_FERNET_KEY"].encode()
 elif os.path.exists(_KEY_FILE):
@@ -24,14 +29,12 @@ elif os.path.exists(_KEY_FILE):
 else:
     from cryptography.fernet import Fernet as _F
     FERNET_KEY = _F.generate_key()
-    os.makedirs(os.path.dirname(_KEY_FILE), exist_ok=True)
+    os.makedirs(CERT_DIR, exist_ok=True)
     with open(_KEY_FILE, "wb") as _f:
         _f.write(FERNET_KEY)
     print(f"[CONFIG] New Fernet key saved to {_KEY_FILE}")
 
 # ── TLS certificates ──────────────────────────────────────────────────────────
-BASE_DIR    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CERT_DIR    = os.path.join(BASE_DIR, "certs")
 SERVER_CERT = os.path.join(CERT_DIR, "server.crt")
 SERVER_KEY  = os.path.join(CERT_DIR, "server.key")
 CA_CERT     = os.path.join(CERT_DIR, "ca.crt")
